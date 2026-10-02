@@ -1,19 +1,20 @@
 use chrono::{Local, Utc};
 use eframe::egui::{
-    self, Align, Color32, Frame, Id, Layout, Margin,
-    RichText, Rounding, Sense, ViewportCommand, ViewportId,
+    self, Align, Color32, Frame, Id, Layout, Margin, RichText, Rounding, Sense, ViewportCommand,
+    ViewportId,
 };
 use std::{
-    sync::{mpsc, Arc, Mutex},
+    sync::{Arc, Mutex, mpsc},
     time::Duration,
 };
 
-use crate::config::*;
-use crate::worker::*;
-use crate::track::*;
-use crate::theme::*;
 use crate::calendar::*;
+use crate::config::*;
 use crate::fmt::*;
+use crate::theme::*;
+use crate::track::*;
+use crate::updater::*;
+use crate::worker::*;
 use crate::{START_H, WIDTH};
 
 #[derive(PartialEq, Clone, Copy)]
@@ -34,6 +35,10 @@ pub struct Widget {
     pub circuits: Vec<Circuit>,
     pub track_key: Option<i64>,
     pub track: Option<Track>,
+
+    pub update: UpdateState,
+    pub update_tx: mpsc::Sender<UpdateMsg>,
+    pub update_rx: mpsc::Receiver<UpdateMsg>,
 }
 
 impl Widget {
@@ -46,6 +51,21 @@ impl Widget {
         v.popup_shadow = egui::epaint::Shadow::NONE;
         cc.egui_ctx.set_visuals(v);
         setup_fonts(&cc.egui_ctx);
+
+        let (update_tx, update_rx) = mpsc::channel();
+        {
+            let tx = update_tx.clone();
+            let ctx = cc.egui_ctx.clone();
+            std::thread::spawn(move || {
+                let msg = match check_for_update() {
+                    Ok(Some(v)) => UpdateMsg::Available(v),
+                    Ok(None) => UpdateMsg::UpToDate,
+                    Err(e) => UpdateMsg::Failed(e.to_string()),
+                };
+                let _ = tx.send(msg);
+                ctx.request_repaint();
+            });
+        }
 
         // Cached calendar is available immediately (works offline); the worker refreshes it.
         let shared: Shared = Arc::new(Mutex::new(State {
@@ -68,6 +88,10 @@ impl Widget {
             circuits: load_circuits(),
             track_key: None,
             track: None,
+
+            update: UpdateState::Idle,
+            update_tx,
+            update_rx,
         }
     }
 
@@ -121,6 +145,25 @@ impl eframe::App for Widget {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         ctx.request_repaint_after(Duration::from_secs(1));
 
+        while let Ok(msg) = self.update_rx.try_recv() {
+            self.update = match msg {
+                UpdateMsg::Available(v) => UpdateState::Available(v),
+                UpdateMsg::Installed(v) => UpdateState::Done(v),
+                UpdateMsg::Failed(e) => {
+                    if self.update == UpdateState::Downloading {
+                        UpdateState::Failed(e)
+                    } else {
+                        UpdateState::Idle
+                    }
+                }
+                UpdateMsg::UpToDate => UpdateState::Idle,
+            }
+        }
+        let upd = self.update.clone();
+        let mut start_install = false;
+        let mut dismiss_update = false;
+        let mut restart = false;
+
         if let Some(r) = ctx.input(|i| i.viewport().outer_rect) {
             if ctx.viewport_id() == ViewportId::ROOT {
                 self.cfg.x = r.min.x;
@@ -172,6 +215,55 @@ impl eframe::App for Widget {
                 });
 
                 ui.spacing_mut().item_spacing.x = 0.0;
+
+                match &upd {
+                    UpdateState::Available(v) => {
+                        ui.label(
+                            RichText::new(format!("Update v{v} available. Download now?"))
+                                .size(13.0)
+                                .color(text),
+                        );
+                        ui.horizontal(|ui| {
+                            if ui.button("Yes").clicked() {
+                                start_install = true;
+                            }
+                            if ui.button("Later").clicked() {
+                                dismiss_update = true;
+                            }
+                        });
+                        ui.add_space(10.0);
+                    }
+                    UpdateState::Downloading => {
+                        ui.horizontal(|ui| {
+                            ui.spinner();
+                            ui.label(RichText::new("Downloading update…").size(13.0).color(dim));
+                        });
+                        ui.add_space(10.0);
+                    }
+                    UpdateState::Done(v) => {
+                        ui.label(
+                            RichText::new(format!("Updated to v{v}."))
+                                .size(13.0)
+                                .color(GREEN),
+                        );
+                        if ui.button("Restart now").clicked() {
+                            restart = true;
+                        }
+                        ui.add_space(10.0);
+                    }
+                    UpdateState::Failed(e) => {
+                        ui.label(
+                            RichText::new(format!("Update failed: {e}"))
+                                .size(12.0)
+                                .color(RED),
+                        );
+                        if ui.button("Dismiss").clicked() {
+                            dismiss_update = true;
+                        }
+                        ui.add_space(10.0);
+                    }
+                    UpdateState::Idle => {}
+                }
 
                 ui.columns(2, |cols| {
                     // ---------------- LEFT: sessions grouped by day ----------------
@@ -395,6 +487,31 @@ impl eframe::App for Widget {
             }
             self.settings_open = true;
         }
+
+        if dismiss_update {
+            self.update = UpdateState::Idle;
+        }
+        if start_install {
+            self.update = UpdateState::Downloading;
+            let tx = self.update_tx.clone();
+            let ctx2 = ctx.clone();
+            std::thread::spawn(move || {
+                let msg = match install_update() {
+                    Ok(v) => UpdateMsg::Installed(v),
+                    Err(e) => UpdateMsg::Failed(e.to_string()),
+                };
+                let _ = tx.send(msg);
+                ctx2.request_repaint();
+            });
+        }
+        if restart {
+            save_config(&self.cfg);
+            if let Ok(exe) = std::env::current_exe() {
+                let _ = std::process::Command::new(exe).spawn();
+            }
+            ctx.send_viewport_cmd(ViewportCommand::Close);
+        }
+
         if self.settings_open {
             self.settings_window(ctx);
         }

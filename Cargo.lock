@@ -1323,8 +1323,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "f1-widget"
-version = "0.1.0"
+name = "f1-Cal"
+version = "0.1.1"
 dependencies = [
  "chrono",
  "eframe",

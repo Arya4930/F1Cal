@@ -10,6 +10,7 @@ mod theme;
 mod track;
 mod ui;
 mod worker;
+mod updater;
 
 use app::Widget;
 use config::{level, load_config};
