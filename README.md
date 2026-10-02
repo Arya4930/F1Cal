@@ -6,14 +6,14 @@ No need to open a browser just to check when the next Grand Prix is. F1 Calendar
 
 ## Features
 
-- 🏁 **F1 Race Calendar** — View upcoming Grand Prix events.
-- 📅 **Race dates** — Quickly see when each race takes place.
-- 🖥️ **Desktop Widget** — Designed to stay accessible directly from your Windows desktop.
-- ⚡ **Lightweight** — Built with Rust for a fast and low-overhead experience.
-- 🔄 **Automatic Updates** — The application can check GitHub Releases for newer versions.
-- 🎨 **Minimal UI** — Designed to provide information without getting in the way.
+- **F1 Race Calendar** — View upcoming Grand Prix events.
+- **Race dates** — Quickly see when each race takes place.
+- **Desktop Widget** — Designed to stay accessible directly from your Windows desktop.
+- **Lightweight** — Built with Rust for a fast and low-overhead experience.
+- **Automatic Updates** — The application can check GitHub Releases for newer versions.
+- **Minimal UI** — Designed to provide information without getting in the way.
 
-## 🛠️ Tech Stack
+## Tech Stack
 
 - **Rust**
 - **Windows API / desktop integration**
@@ -22,13 +22,13 @@ No need to open a browser just to check when the next Grand Prix is. F1 Calendar
 
 Make your changes and submit a pull request.
 
-## 📄 License
+## License
 
 This project is licensed under the MIT License.
 
 See `LICENSE` for more information.
 
-## ⚠️ Disclaimer
+## Disclaimer
 
 F1 Calendar is an independent project and is **not affiliated with or endorsed by Formula 1, the FIA, or any Formula 1 team**.
 
