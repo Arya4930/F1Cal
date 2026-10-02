@@ -1,15 +1,14 @@
 use crate::calendar::Meeting;
 use eframe::egui::{self, Color32, Sense, Stroke};
+use include_dir::{include_dir, Dir};
 use serde::Deserialize;
-use std::{fs, path::PathBuf};
 
 pub const TRACK_H: f32 = 150.0;
-pub const RANDOM_TRACK: bool = true;
+pub const RANDOM_TRACK: bool = false;
 
-const CIRCUITS_JSON: &str =
-    r"C:\Users\Arya\Desktop\Arya\c\rust\rWidget\src\f1-circuits-svg-main\circuits.json";
-const TRACKS_DIR: &str =
-    r"C:\Users\Arya\Desktop\Arya\c\rust\rWidget\src\f1-circuits-svg-main\tracks";
+// Embedded at compile time. Path is relative to Cargo.toml, so it works on any machine
+// and travels inside the exe (important for self_update, which only replaces the binary).
+static ASSETS: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/src/f1-circuits-svg-main");
 
 #[derive(Deserialize)]
 pub struct CircuitLayout {
@@ -17,6 +16,9 @@ pub struct CircuitLayout {
     pub layout_id: String,
     #[serde(default)]
     pub seasons: String,
+    /// Rotation in degrees, if present in circuits.json.
+    #[serde(rename = "f1-orientation", default)]
+    pub orientation: Option<f32>,
 }
 
 #[derive(Deserialize)]
@@ -28,9 +30,10 @@ pub struct Circuit {
 }
 
 pub fn load_circuits() -> Vec<Circuit> {
-    fs::read_to_string(CIRCUITS_JSON)
-        .ok()
-        .and_then(|s| serde_json::from_str(&s).ok())
+    ASSETS
+        .get_file("circuits.json")
+        .and_then(|f| f.contents_utf8())
+        .and_then(|s| serde_json::from_str(s).ok())
         .unwrap_or_default()
 }
 
@@ -53,13 +56,38 @@ const ALIASES: &[(&str, &str)] = &[
     ("Marina Bay", "marina-bay"),
     ("Yas Marina Circuit", "yas-marina"),
     ("Yas Island", "yas-marina"),
-    ("Austin", "americas"),
-    ("Mexico City", "rodriguez"),
+    ("Austin", "austin"),
+    ("Mexico City", "mexico-city"),
     ("Sao Paulo", "interlagos"),
+    ("São Paulo", "interlagos"),
     ("Lusail", "lusail"),
     ("Catalunya", "catalunya"),
     ("Spa-Francorchamps", "spa-francorchamps"),
     ("Kuala Lumpur", "sepang"),
+    ("Baku", "baku"),
+    ("Buddh", "buddh"),
+    ("Fuji", "fuji"),
+    ("Hockenheim", "hockenheimring"),
+    ("Hockenheimring", "hockenheimring"),
+    ("Hungaroring", "hungaroring"),
+    ("Imola", "imola"),
+    ("Istanbul", "istanbul"),
+    ("Jeddah", "jeddah"),
+    ("Las Vegas", "las-vegas"),
+    ("Madrid", "madrid"),
+    ("Miami", "miami"),
+    ("Monza", "monza"),
+    ("Nürburgring", "nurburgring"),
+    ("Nurburgring", "nurburgring"),
+    ("Portimao", "portimao"),
+    ("Portimão", "portimao"),
+    ("Sebring", "sebring"),
+    ("Sepang", "sepang"),
+    ("Shanghai", "shanghai"),
+    ("Silverstone", "silverstone"),
+    ("Sochi", "sochi"),
+    ("Suzuka", "suzuka"),
+    ("Zandvoort", "zandvoort"),
 ];
 
 pub fn find_circuit<'a>(circuits: &'a [Circuit], m: &Meeting) -> Option<&'a Circuit> {
@@ -101,12 +129,13 @@ pub struct Track {
     size: egui::Vec2,
 }
 
-pub fn load_track(layout_id: &str) -> Option<Track> {
+pub fn load_track(layout: &CircuitLayout) -> Option<Track> {
     use svgtypes::{SimplePathSegment as S, SimplifyingPathParser};
 
-    let path = PathBuf::from(TRACKS_DIR).join(format!("{layout_id}.svg"));
-    let text = fs::read_to_string(path).ok()?;
-    let doc = roxmltree::Document::parse(&text).ok()?;
+    let text = ASSETS
+        .get_file(format!("tracks/{}.svg", layout.layout_id))?
+        .contents_utf8()?;
+    let doc = roxmltree::Document::parse(text).ok()?;
 
     let mut strokes: Vec<Vec<egui::Pos2>> = vec![];
     for node in doc.descendants().filter(|n| n.has_tag_name("path")) {
@@ -184,6 +213,22 @@ pub fn load_track(layout_id: &str) -> Option<Track> {
         return None;
     }
 
+    // Orientation in degrees: prefer circuits.json, fall back to an attribute on the SVG root.
+    let orientation = layout.orientation.or_else(|| {
+        doc.root_element()
+            .attribute("f1-orientation")
+            .and_then(|s| s.trim().parse::<f32>().ok())
+    });
+
+    // Rotate BEFORE computing the bounding box so size and centering stay correct.
+    // Positive = clockwise on screen (y points down). Negate if tracks come out reversed.
+    if let Some(deg) = orientation {
+        let rot = egui::emath::Rot2::from_angle(deg.to_radians());
+        for p in strokes.iter_mut().flatten() {
+            *p = (rot * p.to_vec2()).to_pos2();
+        }
+    }
+
     let (mut min, mut max) = (
         egui::pos2(f32::MAX, f32::MAX),
         egui::pos2(f32::MIN, f32::MIN),
@@ -208,7 +253,7 @@ pub fn draw_track(ui: &mut egui::Ui, t: &Track, color: Color32) {
     );
     let scale = ((rect.width() - 8.0) / t.size.x).min((rect.height() - 8.0) / t.size.y);
     let origin = rect.center() - t.size * scale * 0.5;
-    let stroke = Stroke::new(3.0 as f32, color);
+    let stroke = Stroke::new(3.0_f32, color);
     for s in &t.strokes {
         let pts: Vec<_> = s.iter().map(|p| origin + p.to_vec2() * scale).collect();
         ui.painter().add(egui::Shape::line(pts, stroke));

@@ -128,11 +128,11 @@ impl Widget {
             // Walk from the random start until one has a loadable SVG.
             (0..n)
                 .map(|i| &self.circuits[(start + i) % n])
-                .find_map(|c| pick_layout(c, year).and_then(|l| load_track(&l.layout_id)))
+                .find_map(|c| pick_layout(c, year).and_then(load_track))
         } else {
             find_circuit(&self.circuits, m)
                 .and_then(|c| pick_layout(c, year))
-                .and_then(|l| load_track(&l.layout_id))
+                .and_then(|l| load_track(l))
         };
     }
 }
